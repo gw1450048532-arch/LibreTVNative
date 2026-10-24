@@ -96,12 +96,38 @@ jobs:
             "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           ls "$ANDROID_HOME"
 
+      # NDK 具体版本号会随 Google 仓库下架而变化，这里不写死：
+      # 优先复用镜像预装的 NDK，否则从可用列表里选（Tauri 2 推荐 26.x）。
       - name: Install NDK
         run: |
           set -e
-          sdkmanager --sdk_root="$ANDROID_HOME" "ndk;27.2.12479098"
-          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479098" >> "$GITHUB_ENV"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479098" >> "$GITHUB_ENV"
+          NDK_DIR=""
+          if [ -d "$ANDROID_HOME/ndk" ]; then
+            NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -z "$NDK_DIR" ]; then
+            PKG=$(sdkmanager --list 2>/dev/null | grep -oE 'ndk;26\.[0-9.]+' | sort -V | tail -1 || true)
+            if [ -z "$PKG" ]; then
+              PKG=$(sdkmanager --list 2>/dev/null | grep -oE 'ndk;[0-9]+\.[0-9.]+' | sort -V | tail -1 || true)
+            fi
+            if [ -z "$PKG" ]; then
+              echo "::error::SDK 仓库中没有可用的 NDK 包"
+              exit 1
+            fi
+            echo "install NDK package: $PKG"
+            yes 2>/dev/null | sdkmanager --sdk_root="$ANDROID_HOME" "$PKG"
+            NDK_DIR="$ANDROID_HOME/ndk/${PKG#ndk\;}"
+          fi
+          NDK_DIR="${NDK_DIR%/}"
+          echo "NDK: $NDK_DIR"
+          test -d "$NDK_DIR"
+          {
+            echo "ANDROID_NDK_ROOT=$NDK_DIR"
+            echo "ANDROID_NDK_HOME=$NDK_DIR"
+            echo "ANDROID_NDK_PATH=$NDK_DIR"
+            echo "NDK_HOME=$NDK_DIR"
+          } >> "$GITHUB_ENV"
+          ls "$NDK_DIR"
 
       - name: Install Rust Android targets
         run: |
