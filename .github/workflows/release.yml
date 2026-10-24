@@ -74,12 +74,32 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # 注意：不要用 android-actions/setup-android@v3 —— 它会执行 sdkmanager "tools"，
+      # 而新版 cmdline-tools（16.x）已移除该包，会直接 exit 1。
+      # ubuntu-latest 镜像已预装 Android SDK，直接接管环境变量即可。
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -e
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          CMDLINE_BIN=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin 2>/dev/null | sort -V | tail -1)
+          if [ -z "$CMDLINE_BIN" ]; then
+            echo "::error::未找到 cmdline-tools"
+            exit 1
+          fi
+          echo "cmdline-tools: $CMDLINE_BIN"
+          echo "$CMDLINE_BIN" >> "$GITHUB_PATH"
+          yes 2>/dev/null | "$CMDLINE_BIN/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$CMDLINE_BIN/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          ls "$ANDROID_HOME"
 
       - name: Install NDK
         run: |
-          sdkmanager "ndk;27.2.12479098"
+          set -e
+          sdkmanager --sdk_root="$ANDROID_HOME" "ndk;27.2.12479098"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479098" >> "$GITHUB_ENV"
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479098" >> "$GITHUB_ENV"
 
