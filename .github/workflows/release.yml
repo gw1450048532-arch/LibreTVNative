@@ -96,27 +96,27 @@ jobs:
             "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           ls "$ANDROID_HOME"
 
-      # NDK 具体版本号会随 Google 仓库下架而变化，这里不写死：
-      # 优先复用镜像预装的 NDK，否则从可用列表里选（Tauri 2 推荐 26.x）。
+      # NDK 具体版本号会随 Google 仓库下架而变化，这里不写死版本。
+      # Tauri 2 推荐 26.x：镜像预装的可能更新（如 30.x），与 Rust Android target
+      # 兼容性不稳定，因此 26.x 优先，取不到才退回镜像里已有的最高版本。
       - name: Install NDK
         run: |
           set -e
-          NDK_DIR=""
-          if [ -d "$ANDROID_HOME/ndk" ]; then
-            NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | sort -V | tail -1)
-          fi
+          NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/26.*/ 2>/dev/null | sort -V | tail -1 || true)
           if [ -z "$NDK_DIR" ]; then
             PKG=$(sdkmanager --list 2>/dev/null | grep -oE 'ndk;26\.[0-9.]+' | sort -V | tail -1 || true)
-            if [ -z "$PKG" ]; then
-              PKG=$(sdkmanager --list 2>/dev/null | grep -oE 'ndk;[0-9]+\.[0-9.]+' | sort -V | tail -1 || true)
+            if [ -n "$PKG" ]; then
+              echo "install NDK package: $PKG"
+              yes 2>/dev/null | sdkmanager --sdk_root="$ANDROID_HOME" "$PKG"
+              NDK_DIR="$ANDROID_HOME/ndk/${PKG#ndk\;}/"
             fi
-            if [ -z "$PKG" ]; then
-              echo "::error::SDK 仓库中没有可用的 NDK 包"
-              exit 1
-            fi
-            echo "install NDK package: $PKG"
-            yes 2>/dev/null | sdkmanager --sdk_root="$ANDROID_HOME" "$PKG"
-            NDK_DIR="$ANDROID_HOME/ndk/${PKG#ndk\;}"
+          fi
+          if [ -z "$NDK_DIR" ]; then
+            NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | sort -V | tail -1 || true)
+          fi
+          if [ -z "$NDK_DIR" ]; then
+            echo "::error::SDK 仓库中没有可用的 NDK 包"
+            exit 1
           fi
           NDK_DIR="${NDK_DIR%/}"
           echo "NDK: $NDK_DIR"
