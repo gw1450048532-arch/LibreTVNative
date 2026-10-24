@@ -57,8 +57,47 @@ git push origin v0.1.0
 | 工具 | 用途 | 安装 |
 |---|---|---|
 | Node 20+ | 前端构建 | https://nodejs.org |
-| Rust (stable) | Tauri 壳 | https://rustup.rs （Windows 需再装 VS Build Tools 的「C++ 桌面开发」工作负载） |
+| Rust (stable) | Tauri 壳 | https://rustup.rs |
 | Android SDK + NDK 27 | 仅安卓 APK 需要 | Android Studio 或 `sdkmanager` |
+
+**Windows 上 Rust 工具链怎么选（本机 2026-10-24 实测跑通）**：
+
+- 标准路径是 MSVC 工具链，但需要装 **VS Build Tools 的「C++ 桌面开发」工作负载（含 Windows SDK）**，约 3–7 GB。
+- 本机（DESKTOP-QJ59OA2）已装 VS 2022（`D:\Visual Studio`，含 MSVC 14.43）但**缺 Windows SDK**（无 kernel32.lib）→ MSVC 路线要装 ~3GB SDK。
+- 因此本机采用 **GNU 工具链**，不装 Windows SDK。三步配置（全部实测通过 `cargo check` / `cargo build` / `tauri dev`）：
+
+```bash
+# 1) rustup 装 GNU 工具链（自带 rust-lld 与 MinGW binutils）
+rustup-init.exe -y --default-host x86_64-pc-windows-gnu --default-toolchain stable --profile minimal
+
+# 2) 装 w64devkit（自包含 MinGW-w64，提供 gcc 驱动程序与 C 头文件）
+#    https://github.com/skeeto/w64devkit/releases （zip 解压到 D:\tools\w64devkit，bin 加入 PATH）
+
+# 3) 写 ~/.cargo/config.toml（见下）
+```
+
+`~/.cargo/config.toml`（关键，三个坑各对应一项）：
+
+```toml
+[target.x86_64-pc-windows-gnu]
+linker = "D:/tools/w64devkit/bin/gcc.exe"
+ar = "D:/tools/w64devkit/bin/ar.exe"
+rustflags = ["-C", "link-arg=-Wl,--exclude-all-symbols"]
+
+[env]
+LIBRARY_PATH = { value = "C:/Users/win/.rustup/toolchains/stable-x86_64-pc-windows-gnu/lib/rustlib/x86_64-pc-windows-gnu/lib/self-contained", force = true }
+```
+
+**三个坑与对策（都踩过）**：
+
+1. **`error calling dlltool 'dlltool.exe': program not found`** — rustup 的 GNU 工具链不自带完整 MinGW；w64devkit 的 `bin` 加进 PATH 解决。
+2. **`ld: cannot find crt2.o / -lkernel32`** — rustup 工具链其实自带全套导入库（`lib/rustlib/<target>/lib/self-contained/`，42 个 `.a`，含 `libgcc_eh.a`/`libkernel32.a`/`crt2.o`），但 cc 构建脚本调 gcc 时不去那找。用 cargo `[env]` 的 `LIBRARY_PATH` 指过去（比改系统环境变量干净，只对 cargo 生效）。
+   注意：w64devkit 2.x（GCC 16）和 1.x（GCC 13）都**不单独提供** `libgcc_eh.a`，不要去找它，直接用 rustup 自带的。
+3. **`ld: error: export ordinal too large: 109956`** — gcc 链 DLL 时默认 `--export-all-symbols`，把 Tauri 依赖树全部符号导出，超过 ld 的 16 位序数上限。桌面开发时二进制静态链 rlib、不需要 DLL 导出，加 `rustflags = ["-C", "link-arg=-Wl,--exclude-all-symbols"]` 解决。
+   **此问题只影响 Windows GNU 的 DLL 构建；Android（CI）用独立链接器，不受影响。**
+
+> 发布安装包仍走 CI（MSVC 环境），本机 GNU 工具链仅用于开发调试。
+> PATH 追加用注册表 API（`[Environment]::SetEnvironmentVariable('PATH', ..., 'User')`），**不要用 setx**——PATH 超过 1024 字符会被截断。
 
 ### B2. Windows 安装包
 

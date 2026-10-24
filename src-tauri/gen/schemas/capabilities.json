@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Capabilities for the main window: default core permissions plus the app's own commands (app commands are allowed by default in Tauri v2).","local":true,"windows":["main"],"permissions":["core:default"]}}
